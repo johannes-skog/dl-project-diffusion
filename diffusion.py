@@ -3,10 +3,9 @@ import time
 import torch
 
 def extract(a, t, x_shape):
+
     batch_size = t.shape[0]
     out = a.gather(-1, t.cpu())
-
-    print(out)
 
     return out.reshape(batch_size, *((1,) * (len(x_shape) - 1))).to(t.device)
 
@@ -47,7 +46,15 @@ class Diffusion(object):
 
         return torch.linspace(start, end, self._timesteps)
 
-    def forward(self, x: torch.Tensor, t: int):
+    def _generate_random_timesteps(self, x: torch.Tensor):
+
+        t = torch.randint(0, self._timesteps, (x.shape[0],), device=x.device).long()
+
+        return t
+
+    def forward(self, x: torch.Tensor, t: int = None):
+
+        t = t if t is not None else self._generate_random_timesteps(x=x)
 
         noise = torch.randn_like(x)
 
