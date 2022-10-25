@@ -1,5 +1,59 @@
+from typing import Callable
+from responses import Call
 import torch
 import einops
+import math
+
+class GroupPreNormalizer(torch.nn.Module):
+
+    def __init__(self, dim: int, func: Callable):
+
+        super().__init__()
+
+        self._func = func
+
+        self._normalizer = torch.nn.GroupNorm(
+            num_groups=1,
+            num_channels=dim
+        )
+
+    def forward(self, x: torch.Tensor):
+
+        x = self._normalizer(x)
+
+        return self._func(x)
+
+class Residual(torch.nn.Module):
+
+    def __init__(self, func: Callable):
+
+        super().__init__()
+
+        self._func = func
+
+    def forward(self, x: torch.Tensor, *args, **kwargs):
+
+        return self._func(x, *args, **kwargs) + x
+
+
+class SinusoidalPositionEmbeddings(torch.nn.Module):
+
+    def __init__(self, dim):
+
+        super().__init__()
+        self._dim = dim
+
+    def forward(self, time: torch.Tensor):
+
+        device = time.device
+        half_dim = self._dim // 2
+        embeddings = math.log(10000) / (half_dim - 1)
+        embeddings = torch.exp(torch.arange(half_dim, device=device) * -embeddings)
+        embeddings = time[:, None] * embeddings[None, :]
+        embeddings = torch.cat((embeddings.sin(), embeddings.cos()), dim=-1)
+
+        return embeddings
+
 
 class ConvBlock(torch.nn.Module):
 
@@ -133,7 +187,7 @@ class ConvNextBlock(torch.nn.Module):
             if in_channels != out_channels else torch.nn.Identity()
         )
 
-    def forward(self, x: torch.Tensor, time_emb: torch.Tensor):
+    def forward(self, x: torch.Tensor, time_emb: torch.Tensor = None):
 
         y = self._dw_conv(x)
 
@@ -207,7 +261,7 @@ class ConvLinearAttention(torch.nn.Module):
     def forward(self, x: torch.Tensor):
 
         b, c, h, w = x.shape
-        qkv = self.to__qkv_netqkv(x).chunk(3, dim=1)
+        qkv = self._qkv_net(x).chunk(3, dim=1)
 
         q, k, v = map(
             lambda t: einops.rearrange(t, "b (h c) x y -> b h c (x y)", h=self._heads), qkv
