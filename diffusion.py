@@ -42,6 +42,8 @@ class Diffusion(object):
 
         self._sqrt_one_minus_alphas_cumprod = torch.sqrt(1. - self._alphas_cumprod)
 
+        self._posterior_variance = self._beta_schedule * (1. - self._alphas_cumprod_prev) / (1. - self._alphas_cumprod)
+
     def _setup_linear_beta_schedule(self, start: float = 0.0001, end: float = 0.02):
 
         return torch.linspace(start, end, self._timesteps)
@@ -52,7 +54,7 @@ class Diffusion(object):
 
         return t
 
-    def forward(self, x: torch.Tensor, t: int = None):
+    def forward(self, x: torch.Tensor, t: torch.Tensor = None):
 
         t = t if t is not None else self._generate_random_timesteps(x=x)
 
@@ -66,4 +68,30 @@ class Diffusion(object):
             self._sqrt_one_minus_alphas_cumprod, t, x.shape
         )
 
-        return sqrt_alphas_cumprod_t * x + sqrt_one_minus_alphas_cumprod_t * noise
+        return sqrt_alphas_cumprod_t * x + sqrt_one_minus_alphas_cumprod_t * noise, noise, t
+
+    def loss(self, noise: torch.Tensor, predicted_noise: torch.Tensor):
+
+        loss = torch.nn.functional.smooth_l1_loss(noise, predicted_noise)
+
+        return loss
+
+    def backward(self, x: torch.Tensor, predicted_noise: torch.Tensor, t: torch.Tensor):
+
+        betas = extract(self._beta_schedule, t, x.shape)
+
+        sqrt_one_minus_alphas_cumprod_t = extract(
+            self._sqrt_one_minus_alphas_cumprod, t, x.shape
+        )
+        sqrt_recip_alphas_t = extract(self._sqrt_recip_alphas, t, x.shape)
+
+        # Equation 11 in the paper
+        # Use our model (noise predictor) to predict the mean
+        model_mean = sqrt_recip_alphas_t * (
+            x - betas * predicted_noise / sqrt_one_minus_alphas_cumprod_t
+        )
+
+        posterior_variance_t = extract(self._posterior_variance, t, x.shape)
+        noise = torch.randn_like(x)
+
+        return model_mean + torch.sqrt(posterior_variance_t) * noise
