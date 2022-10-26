@@ -16,105 +16,115 @@ from utils import (
 class Unet(torch.nn.Module):
     def __init__(
         self,
-        scale_channels: int,
-        init_channels: int,
-        out_channels: int,
-        nchannels: int = 3,
-        dim_mults: List[int] = (1, 2, 4, 8),
+        channels: List[int],
+        in_channels: int = 3,
         resnet_block_groups: int = 8,
         use_convnext: bool = True,
         convnext_mult: int = 2,
+        init_channel_mult: int = 32,
     ):
         super().__init__()
 
+        _channels = channels[:]
+
         # determine dimensions
-        self._nchannels = nchannels
+        self._nchannels = in_channels
+
+        _current_channels = in_channels
 
         self._init_conv = torch.nn.Conv2d(
-            in_channels=nchannels,
-            out_channels=init_channels,
+            in_channels=_current_channels,
+            out_channels=_current_channels * init_channel_mult,
             kernel_size=7,
             padding=3
         )
 
-        dims = [init_channels, *map(lambda m: scale_channels * m, dim_mults)]
-        in_out = list(zip(dims[:-1], dims[1:]))
+        _current_channels = _current_channels * init_channel_mult
 
         if use_convnext:
             _ConvBlock = partial(ConvNextBlock, mult=convnext_mult)
         else:
-            _ConvBlock = partial(ResnetBlock, groups=resnet_block_groups)
+            _ConvBlock = partial(ResnetBlock, norm_groups=resnet_block_groups)
 
-        time_dim = scale_channels * 4
+        print(_ConvBlock)
+
+        time_dim = _current_channels * 4
+
         self.time_mlp = torch.nn.Sequential(
-            SinusoidalPositionEmbeddings(scale_channels),
-            torch.nn.Linear(scale_channels, time_dim),
+            SinusoidalPositionEmbeddings(_current_channels),
+            torch.nn.Linear(_current_channels, time_dim),
             torch.nn.GELU(),
             torch.nn.Linear(time_dim, time_dim),
         )
 
         # layers
-        self.downs = torch.nn.ModuleList([])
-        self.ups = torch.nn.ModuleList([])
-        num_resolutions = len(in_out)
+        self._down_sampling_layers = torch.nn.ModuleList([])
+        self._up_sampling_layers = torch.nn.ModuleList([])
 
-        for ind, (dim_in, dim_out) in enumerate(in_out):
-            is_last = ind >= (num_resolutions - 1)
+        n_layers = len(channels)
 
-            self.downs.append(
+        for i, channels_out in enumerate(_channels):
+
+            last_layer = i >= (n_layers - 1)
+
+            self._down_sampling_layers.append(
                 torch.nn.ModuleList(
                     [
-                        _ConvBlock(dim_in, dim_out, time_emb_dim=time_dim),
-                        _ConvBlock(dim_out, dim_out, time_emb_dim=time_dim),
-                        Residual(GroupPreNormalizer(dim_out, ConvLinearAttention(dim_out))),
+                        _ConvBlock(_current_channels, channels_out, time_emb_dim=time_dim),
+                        _ConvBlock(channels_out, channels_out, time_emb_dim=time_dim),
+                        Residual(GroupPreNormalizer(channels_out, ConvLinearAttention(channels_out))),
                         # Downsample
                         (
                             torch.nn.Conv2d(
-                                in_channels=dim_out,
-                                out_channels=dim_out,
+                                in_channels=channels_out,
+                                out_channels=channels_out,
                                 kernel_size=4,
                                 stride=2,
                                 padding=1
                             )
-                            if not is_last else torch.nn.Identity()
+                            if not last_layer else torch.nn.Identity()
                         )
                     ]
                 )
             )
 
-        mid_dim = dims[-1]
-        self.mid_block1 = _ConvBlock(mid_dim, mid_dim, time_emb_dim=time_dim)
-        self.mid_attn = Residual(GroupPreNormalizer(mid_dim, ConvAttention(mid_dim)))
-        self.mid_block2 = _ConvBlock(mid_dim, mid_dim, time_emb_dim=time_dim)
+            _current_channels = channels_out
 
-        for ind, (dim_in, dim_out) in enumerate(reversed(in_out[1:])):
+        self.mid_block1 = _ConvBlock(_current_channels, _current_channels, time_emb_dim=time_dim)
+        self.mid_attn = Residual(GroupPreNormalizer(_current_channels, ConvAttention(_current_channels)))
+        self.mid_block2 = _ConvBlock(_current_channels, _current_channels, time_emb_dim=time_dim)
 
-            is_last = ind >= (num_resolutions - 1)
+        _channels = [x for x in (reversed(_channels))][1:]
 
-            self.ups.append(
+        for i, channels_out in enumerate(_channels):
+
+            last_layer = i >= (n_layers - 1)
+
+            self._up_sampling_layers.append(
                 torch.nn.ModuleList(
                     [
-                        _ConvBlock(dim_out * 2, dim_in, time_emb_dim=time_dim),
-                        _ConvBlock(dim_in, dim_in, time_emb_dim=time_dim),
-                        Residual(GroupPreNormalizer(dim_in, ConvLinearAttention(dim_in))),
+                        _ConvBlock(_current_channels * 2, channels_out, time_emb_dim=time_dim),
+                        _ConvBlock(channels_out, channels_out, time_emb_dim=time_dim),
+                        Residual(GroupPreNormalizer(channels_out, ConvLinearAttention(channels_out))),
                         (
                             torch.nn.ConvTranspose2d(
-                                in_channels=dim_in,
-                                out_channels=dim_in,
+                                in_channels=channels_out,
+                                out_channels=channels_out,
                                 kernel_size=4,
                                 stride=2,
                                 padding=1
                             )
-                            if not is_last else torch.nn.Identity()
+                            if not last_layer else torch.nn.Identity()
                         )
                     ]
                 )
             )
 
-        out_dim = out_channels if out_channels is not None else nchannels
+            _current_channels = channels_out
+
         self.final_conv = torch.nn.Sequential(
-            _ConvBlock(scale_channels, scale_channels),
-            torch.nn.Conv2d(scale_channels, out_dim, 1)
+            _ConvBlock(_current_channels, _current_channels),
+            torch.nn.Conv2d(_current_channels, in_channels, 1)
         )
 
     def forward(self, x, time):
@@ -126,12 +136,13 @@ class Unet(torch.nn.Module):
         h = []
 
         # downsample
-        for block1, block2, attn, downsample in self.downs:
+        for block1, block2, attn, downsample in self._down_sampling_layers:
             x = block1(x, t)
             x = block2(x, t)
             x = attn(x)
             h.append(x)
             x = downsample(x)
+
 
         # bottleneck
         x = self.mid_block1(x, t)
@@ -139,7 +150,7 @@ class Unet(torch.nn.Module):
         x = self.mid_block2(x, t)
 
         # upsample
-        for block1, block2, attn, upsample in self.ups:
+        for block1, block2, attn, upsample in self._up_sampling_layers:
             x = torch.cat((x, h.pop()), dim=1)
             x = block1(x, t)
             x = block2(x, t)

@@ -83,9 +83,9 @@ class ConvBlock(torch.nn.Module):
 
     def forward(self, x: torch.Tensor):
 
-        x = self.proj(x)
-        x = self.norm(x)
-        x = self.act(x)
+        x = self._conv(x)
+        x = self._gnorm(x)
+        x = self._actfunc(x)
 
         return x
 
@@ -118,7 +118,7 @@ class ResnetBlock(torch.nn.Module):
         )
 
         self._block2 = ConvBlock(
-            in_channels=in_channels,
+            in_channels=out_channels,
             out_channels=out_channels,
             norm_groups=norm_groups,
             kernel_size=kernel_size
@@ -136,11 +136,11 @@ class ResnetBlock(torch.nn.Module):
         # Add the time ebedding info
         if (self._time_embedder is not None) and (time_emb is not None):
             time_emb = self._time_embedder(time_emb)
-            h = einops.rearrange(time_emb, "b c -> b c 1 1") + y
+            y = einops.rearrange(time_emb, "b c -> b c 1 1") + y
 
         y = self._block2(y)
 
-        return y + self.res_conv(x)
+        return y + self._res_conv(x)
 
 
 class ConvNextBlock(torch.nn.Module):

@@ -92,6 +92,7 @@ class Diffusion(object):
         )
 
         posterior_variance_t = extract(self._posterior_variance, t, x.shape)
-        noise = torch.randn_like(x)
+
+        noise = torch.randn_like(x) if t > 0 else 0
 
         return model_mean + torch.sqrt(posterior_variance_t) * noise
