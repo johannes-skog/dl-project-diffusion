@@ -50,7 +50,7 @@ class Unet(torch.nn.Module):
 
         time_dim = _current_channels * 4
 
-        self.time_mlp = torch.nn.Sequential(
+        self._time_mlp = torch.nn.Sequential(
             SinusoidalPositionEmbeddings(_current_channels),
             torch.nn.Linear(_current_channels, time_dim),
             torch.nn.GELU(),
@@ -131,7 +131,7 @@ class Unet(torch.nn.Module):
 
         x = self._init_conv(x)
 
-        t = None # self.time_mlp(time) if self.time_mlp is not None else None
+        t = self._time_mlp(time) if self._time_mlp is not None else None
 
         h = []
 

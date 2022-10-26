@@ -44,7 +44,7 @@ class Diffusion(object):
 
         self._posterior_variance = self._beta_schedule * (1. - self._alphas_cumprod_prev) / (1. - self._alphas_cumprod)
 
-    def _setup_linear_beta_schedule(self, start: float = 0.0001, end: float = 0.02):
+    def _setup_linear_beta_schedule(self, start: float = 0.0001, end: float = 0.03):
 
         return torch.linspace(start, end, self._timesteps)
 
@@ -72,7 +72,7 @@ class Diffusion(object):
 
     def loss(self, noise: torch.Tensor, predicted_noise: torch.Tensor):
 
-        loss = torch.nn.functional.smooth_l1_loss(noise, predicted_noise)
+        loss = torch.nn.functional.mse_loss(noise, predicted_noise) # torch.nn.functional.smooth_l1_loss(noise, predicted_noise)
 
         return loss
 
