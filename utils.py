@@ -55,6 +55,30 @@ class SinusoidalPositionEmbeddings(torch.nn.Module):
         return embeddings
 
 
+class ClassEmbeddings(torch.nn.Module):
+
+    def __init__(self, nclasses: int, out_dim: int):
+
+        super().__init__()
+
+        self._n_classes = nclasses
+
+        self._out_net = torch.nn.Sequential(
+            torch.nn.Linear(in_features=nclasses, out_features=out_dim),
+            torch.nn.LayerNorm(out_dim),
+            torch.nn.SiLU(),
+            torch.nn.Linear(in_features=out_dim, out_features=out_dim),
+        )
+
+    def forward(self, classes: torch.Tensor):
+
+        one_hot = torch.nn.functional.one_hot(classes.long(), num_classes=self._n_classes).float()
+
+        y = self._out_net(one_hot)
+
+        return y
+
+
 class ConvBlock(torch.nn.Module):
 
     def __init__(

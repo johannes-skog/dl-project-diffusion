@@ -1,3 +1,5 @@
+from mimetypes import init
+import re
 from typing import List
 import torch
 from functools import partial
@@ -12,8 +14,8 @@ from utils import (
     GroupPreNormalizer,
 )
 
-
 class Unet(torch.nn.Module):
+
     def __init__(
         self,
         channels: List[int],
@@ -45,8 +47,6 @@ class Unet(torch.nn.Module):
             _ConvBlock = partial(ConvNextBlock, mult=convnext_mult)
         else:
             _ConvBlock = partial(ResnetBlock, norm_groups=resnet_block_groups)
-
-        print(_ConvBlock)
 
         time_dim = _current_channels * 4
 
@@ -158,3 +158,71 @@ class Unet(torch.nn.Module):
             x = upsample(x)
 
         return self.final_conv(x)
+
+
+from utils import ClassEmbeddings
+
+class UnetConditional(Unet):
+
+    def __init__(
+        self,
+        channels: List[int],
+        nclasses: int,
+        in_channels: int = 3,
+        resnet_block_groups: int = 8,
+        use_convnext: bool = True,
+        convnext_mult: int = 2,
+        init_channel_mult: int = 32,
+    ):
+
+        super().__init__(
+            channels=channels,
+            in_channels=in_channels,
+            resnet_block_groups=resnet_block_groups,
+            use_convnext=use_convnext,
+            convnext_mult=convnext_mult,
+            init_channel_mult=init_channel_mult
+        )
+
+        self._nclasses = nclasses
+
+        self._classes_embedder = ClassEmbeddings(
+            nclasses=nclasses,
+            out_dim=in_channels * init_channel_mult * 4
+        )
+
+    def forward(self, x: torch.Tensor, time: torch.Tensor, classes: torch.Tensor):
+
+        x = self._init_conv(x)
+
+        t = self._time_mlp(time) if self._time_mlp is not None else None
+        c = self._classes_embedder(classes)
+
+        e = t + c
+
+        h = []
+
+        # downsample
+        for block1, block2, attn, downsample in self._down_sampling_layers:
+            x = block1(x, e)
+            x = block2(x, e)
+            x = attn(x)
+            h.append(x)
+            x = downsample(x)
+
+
+        # bottleneck
+        x = self.mid_block1(x, e)
+        x = self.mid_attn(x)
+        x = self.mid_block2(x, e)
+
+        # upsample
+        for block1, block2, attn, upsample in self._up_sampling_layers:
+            x = torch.cat((x, h.pop()), dim=1)
+            x = block1(x, e)
+            x = block2(x, e)
+            x = attn(x)
+            x = upsample(x)
+
+        return self.final_conv(x)
+
