@@ -21,6 +21,10 @@ class Diffusion(object):
 
             self._beta_schedule = self._setup_linear_beta_schedule()
 
+        elif schedular == "cosine":
+
+            self._beta_schedule = self._setup_cosine_beta_schedule()
+
         else:
 
             raise NotImplementedError
@@ -44,9 +48,21 @@ class Diffusion(object):
 
         self._posterior_variance = self._beta_schedule * (1. - self._alphas_cumprod_prev) / (1. - self._alphas_cumprod)
 
-    def _setup_linear_beta_schedule(self, start: float = 0.0001, end: float = 0.03):
+    def _setup_linear_beta_schedule(self, start: float = 0.0001, end: float = 0.02):
 
         return torch.linspace(start, end, self._timesteps)
+
+    def _setup_cosine_beta_schedule(self, s: float = 0.0008):
+        """
+        cosine schedule as proposed in https://arxiv.org/abs/2102.09672
+        """
+
+        steps = self._timesteps + 1
+        x = torch.linspace(0, self._timesteps, steps)
+        alphas_cumprod = torch.cos(((x / self._timesteps) + s) / (1 + s) * (torch.pi * 0.5)) ** 2
+        alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
+        betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
+        return torch.clip(betas, 0.001, 0.999)
 
     def _generate_random_timesteps(self, x: torch.Tensor):
 
@@ -72,7 +88,7 @@ class Diffusion(object):
 
     def loss(self, noise: torch.Tensor, predicted_noise: torch.Tensor):
 
-        loss = torch.nn.functional.mse_loss(noise, predicted_noise) # torch.nn.functional.smooth_l1_loss(noise, predicted_noise)
+        loss = torch.nn.functional.smooth_l1_loss(noise, predicted_noise) # torch.nn.functional.smooth_l1_loss(noise, predicted_noise)
 
         return loss
 

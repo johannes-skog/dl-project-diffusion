@@ -91,7 +91,7 @@ class Unet(torch.nn.Module):
             _current_channels = channels_out
 
         self.mid_block1 = _ConvBlock(_current_channels, _current_channels, time_emb_dim=time_dim)
-        self.mid_attn = Residual(GroupPreNormalizer(_current_channels, ConvAttention(_current_channels)))
+        self.mid_attn = Residual(GroupPreNormalizer(_current_channels, ConvLinearAttention(_current_channels)))
         self.mid_block2 = _ConvBlock(_current_channels, _current_channels, time_emb_dim=time_dim)
 
         _channels = [x for x in (reversed(_channels))][1:]
@@ -124,7 +124,7 @@ class Unet(torch.nn.Module):
 
         self.final_conv = torch.nn.Sequential(
             _ConvBlock(_current_channels, _current_channels),
-            torch.nn.Conv2d(_current_channels, in_channels, 1)
+            torch.nn.Conv2d(_current_channels, in_channels, 1, bias=True)
         )
 
     def forward(self, x, time):
@@ -191,7 +191,12 @@ class UnetConditional(Unet):
             out_dim=in_channels * init_channel_mult * 4
         )
 
-    def forward(self, x: torch.Tensor, time: torch.Tensor, classes: torch.Tensor):
+    def forward(
+        self,
+        x: torch.Tensor,
+        time: torch.Tensor,
+        classes: torch.Tensor,
+    ):
 
         x = self._init_conv(x)
 
@@ -224,5 +229,7 @@ class UnetConditional(Unet):
             x = attn(x)
             x = upsample(x)
 
-        return self.final_conv(x)
+        y = self.final_conv(x)
+
+        return y
 
