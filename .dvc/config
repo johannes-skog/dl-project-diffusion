@@ -1,0 +1,4 @@
+[core]
+    remote = datadvc
+['remote "datadvc"']
+    url = gs://dl-projects/diffusion

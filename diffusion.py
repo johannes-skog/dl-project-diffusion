@@ -52,6 +52,14 @@ class Diffusion(object):
 
         return torch.linspace(start, end, self._timesteps)
 
+    def q_mean_variance(self, x0, t):
+
+        mean = extract(self._sqrt_alphas_cumprod, t, x0.shape) * x0
+        variance = extract(1. - self._alphas_cumprod, t, x0.shape)
+        log_variance = torch.log(variance)
+
+        return mean, variance, log_variance
+
     def _setup_cosine_beta_schedule(self, s: float = 0.0008):
         """
         cosine schedule as proposed in https://arxiv.org/abs/2102.09672
@@ -62,7 +70,7 @@ class Diffusion(object):
         alphas_cumprod = torch.cos(((x / self._timesteps) + s) / (1 + s) * (torch.pi * 0.5)) ** 2
         alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
         betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
-        return torch.clip(betas, 0.001, 0.999)
+        return torch.clip(betas, 0, 1)
 
     def _generate_random_timesteps(self, x: torch.Tensor):
 
@@ -84,31 +92,35 @@ class Diffusion(object):
             self._sqrt_one_minus_alphas_cumprod, t, x.shape
         )
 
-        return sqrt_alphas_cumprod_t * x + sqrt_one_minus_alphas_cumprod_t * noise, noise, t
+        xt = sqrt_alphas_cumprod_t * x + sqrt_one_minus_alphas_cumprod_t * noise
+
+        return xt, noise, t
 
     def loss(self, noise: torch.Tensor, predicted_noise: torch.Tensor):
 
-        loss = torch.nn.functional.smooth_l1_loss(noise, predicted_noise) # torch.nn.functional.smooth_l1_loss(noise, predicted_noise)
+        loss = torch.nn.functional.mse_loss(noise, predicted_noise)  # + 0.1 * predicted_noise.mean() # torch.nn.functional.smooth_l1_loss(noise, predicted_noise)
 
         return loss
 
     def backward(self, x: torch.Tensor, predicted_noise: torch.Tensor, t: torch.Tensor):
 
-        betas = extract(self._beta_schedule, t, x.shape)
+        beta = extract(self._beta_schedule, t, x.shape)
 
         sqrt_one_minus_alphas_cumprod_t = extract(
             self._sqrt_one_minus_alphas_cumprod, t, x.shape
         )
         sqrt_recip_alphas_t = extract(self._sqrt_recip_alphas, t, x.shape)
 
-        # Equation 11 in the paper
-        # Use our model (noise predictor) to predict the mean
         model_mean = sqrt_recip_alphas_t * (
-            x - betas * predicted_noise / sqrt_one_minus_alphas_cumprod_t
+            x - beta * predicted_noise / sqrt_one_minus_alphas_cumprod_t
         )
 
         posterior_variance_t = extract(self._posterior_variance, t, x.shape)
 
         noise = torch.randn_like(x) if t > 0 else 0
 
-        return model_mean + torch.sqrt(posterior_variance_t) * noise
+        output = model_mean + torch.sqrt(posterior_variance_t) * noise
+
+        # output = torch.clip(output, -1, 1)
+
+        return output
