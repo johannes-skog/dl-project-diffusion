@@ -1,6 +1,6 @@
 import math
 import torch
-
+import os
 
 class Embedder(torch.nn.Module):
 
@@ -107,20 +107,54 @@ class Embeddings(torch.nn.Module):
 
         return y
 
+
+class TimeEmbeddings(torch.nn.Module):
+
+    def __init__(self, timesteps: int, hidden_dim: int, dropout: float = 0.1):
+
+        super().__init__()
+
+        self._embedder = Embedder(vocab_sz=timesteps, hidden_dim=hidden_dim)
+
+        self._dropout = torch.nn.Dropout(p=dropout)
+
+        self._layer_norm = LayerNorm(hidden_dim)
+
+    def forward(self, x: torch.Tensor):
+
+        y = self._embedder(x)
+        y = self._dropout(y)
+        y = self._layer_norm(y)
+
+        return y
+
+
+
 class TransformerModel(torch.nn.Module):
 
     def __init__(
         self,
         nlayers: int,
+        decoder: torch.nn.Module = None,
         hidden_dim: int = 768,
-        vocab_sz: int = 30522,
+        timesteps: int = 1000,
         dropout: float = 0.1,
         max_seq_len: int = 512,
     ):
 
         super().__init__()
 
-        self._embedder = Embeddings(vocab_sz=vocab_sz, hidden_dim=hidden_dim, dropout=dropout, max_seq_len=max_seq_len)
+        self._pos_encoder = PositionalEncoding(
+            hidden_dim=hidden_dim,
+            dropout=dropout,
+            max_seq_len=max_seq_len,
+        )
+
+        self._time_embedder = TimeEmbeddings(
+            timesteps=timesteps,
+            hidden_dim=hidden_dim,
+            dropout=dropout,
+        )
 
         self._encoder_layer = torch.nn.ModuleList(
             [
@@ -135,13 +169,51 @@ class TransformerModel(torch.nn.Module):
             ]
         )
 
-    def forward(self, x: torch.Tensor, attention_mask: torch.Tensor):
+        self._decoder = decoder
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        t: torch.Tensor,
+        attention_mask: torch.Tensor
+    ):
 
         src_key_padding_mask = (~attention_mask.bool())
 
-        y = self._embedder(x)
+        y = self._pos_encoder(x)
+
+        # unsqueeze to make it work with broadcasting
+        yt = self._time_embedder(t).unsqueeze(1)
 
         for layer in self._encoder_layer:
-            y = layer(src=y, src_key_padding_mask=src_key_padding_mask)
+            y = layer(src=y, src_key_padding_mask=src_key_padding_mask) + yt
 
-        return y
+        y_decoded = None
+
+        if self._decoder is not None:
+
+            y_decoded = y
+
+            for layer in self._decoder:
+                y_decoded = layer(y_decoded)
+
+        return y, y_decoded
+
+    def save(self, folder: str, name: str):
+
+        if not os.path.exists(folder):
+            os.makedirs(folder)
+
+        path = os.path.join(folder, name)
+
+        torch.save({
+            'model_state_dict': self.state_dict(),
+        }, path)
+
+        return path
+
+    def load(self, folder: str, name: str):
+
+        path = os.path.join(folder, name)
+        checkpoint = torch.load(path)
+        self.load_state_dict(checkpoint['model_state_dict'])

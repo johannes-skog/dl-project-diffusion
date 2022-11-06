@@ -11,7 +11,7 @@ def extract(a, t, x_shape):
 
 class Diffusion(object):
 
-    def __init__(self, timesteps: int, schedular: str = "linear") -> None:
+    def __init__(self, timesteps: int, schedular: str = "linear", **kwargs) -> None:
 
         self._timesteps = timesteps
 
@@ -19,11 +19,11 @@ class Diffusion(object):
 
         if schedular == "linear":
 
-            self._beta_schedule = self._setup_linear_beta_schedule()
+            self._beta_schedule = self._setup_linear_beta_schedule(**kwargs)
 
         elif schedular == "cosine":
 
-            self._beta_schedule = self._setup_cosine_beta_schedule()
+            self._beta_schedule = self._setup_cosine_beta_schedule(**kwargs)
 
         else:
 
