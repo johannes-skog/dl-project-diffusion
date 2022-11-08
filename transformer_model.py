@@ -178,7 +178,7 @@ class TransformerModel(torch.nn.Module):
         attention_mask: torch.Tensor
     ):
 
-        src_key_padding_mask = (~attention_mask.bool())
+        # src_key_padding_mask = (~attention_mask.bool())
 
         y = self._pos_encoder(x)
 
@@ -186,7 +186,7 @@ class TransformerModel(torch.nn.Module):
         yt = self._time_embedder(t).unsqueeze(1)
 
         for layer in self._encoder_layer:
-            y = layer(src=y, src_key_padding_mask=src_key_padding_mask) + yt
+            y = layer(src=y) + yt
 
         y_decoded = None
 
