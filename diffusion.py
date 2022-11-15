@@ -1,6 +1,7 @@
 from signal import raise_signal
 import time
 import torch
+import numpy as np
 
 def extract(a, t, x_shape):
 
@@ -74,7 +75,16 @@ class Diffusion(object):
 
     def _generate_random_timesteps(self, x: torch.Tensor):
 
-        t = torch.randint(0, self._timesteps, (x.shape[0],), device=x.device).long()
+        batch_size = x.shape[0]
+
+        buckets = np.linspace(0, self._timesteps, batch_size + 1, dtype=int)
+
+        t = []
+
+        for h in range(len(buckets) -1):
+            t.append(np.random.randint(buckets[h], buckets[h+1]))
+
+        t = torch.Tensor(t).long().to(x.device)
 
         return t
 
@@ -98,7 +108,7 @@ class Diffusion(object):
 
     def loss(self, noise: torch.Tensor, predicted_noise: torch.Tensor):
 
-        loss = torch.nn.functional.mse_loss(noise, predicted_noise)  # + 0.1 * predicted_noise.mean() # torch.nn.functional.smooth_l1_loss(noise, predicted_noise)
+        loss = torch.nn.functional.mse_loss(noise, predicted_noise)
 
         return loss
 
@@ -120,7 +130,5 @@ class Diffusion(object):
         noise = torch.randn_like(x) if t > 0 else 0
 
         output = model_mean + torch.sqrt(posterior_variance_t) * noise
-
-        # output = torch.clip(output, -1, 1)
 
         return output
