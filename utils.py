@@ -114,7 +114,6 @@ class ConvBlock(torch.nn.Module):
         return x
 
 class ResnetBlock(torch.nn.Module):
-    """https://arxiv.org/abs/1512.03385"""
 
     def __init__(
         self,
@@ -168,7 +167,6 @@ class ResnetBlock(torch.nn.Module):
 
 
 class ConvNextBlock(torch.nn.Module):
-    """https://arxiv.org/abs/2201.03545"""
 
     def __init__(
         self,

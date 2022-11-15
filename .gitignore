@@ -1,0 +1,8 @@
+*.jpg
+*.png
+*.pickle
+*.arrow
+*.ckp
+
+*.ipynb_checkpoints
+*__pycache__/
