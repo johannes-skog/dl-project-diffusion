@@ -246,7 +246,7 @@ class UnetConditional(Unet):
 
         # upsample
         for block1, block2, attn, upsample in self._up_sampling_layers:
-            # x = torch.cat((x, h.pop()), dim=1)
+            x = torch.cat((x, h.pop()), dim=1)
             x = block1(x, e)
             x = block2(x, e)
             x = attn(x)
